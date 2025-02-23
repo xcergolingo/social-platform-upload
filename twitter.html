@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tweet with Video Uploader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap CSS from CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      body {
+        background: #f8f9fa;
+        font-family: sans-serif;
+        margin: 0;
+      }
+      .card {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .custom-btn {
+        min-width: 150px;
+      }
+      #tw-spinner {
+        display: none;
+      }
+    </style>
+  </head>
+  <body onload="initializeTwitterUploader();">
+    <div class="position-absolute m-3" style="z-index: 1000;">
+     <a href="index.html" class="btn btn-secondary">Home</a>
+    </div>
+    <div class="container d-flex justify-content-center align-items-center" style="min-height: 100vh;">
+      <div class="col-md-8">
+        <!-- Main Card -->
+        <div class="card">
+          <div class="card-header bg-info text-white text-center">
+            <h3 class="mb-0">Twitter Uploader</h3>
+            <small>Tweet with Video for Golingo</small>
+          </div>
+          <div class="card-body">
+            <!-- Authentication Section -->
+            <div id="tw-auth-section" class="mb-4 text-center">
+              <button id="tw-login-button" class="btn btn-primary custom-btn" onclick="handleTWLogin()">Login with Twitter</button>
+              <button id="tw-logout-button" class="btn btn-danger custom-btn" style="display:none;" onclick="handleTWLogout()">Logout</button>
+              <div id="tw-auth-status" class="mt-2">Not logged in.</div>
+            </div>
+            <!-- Upload Section -->
+            <div id="tw-upload-section" style="display:none;">
+              <form id="tw-tweet-form">
+                <div class="mb-3">
+                  <textarea id="tw-tweet-text" rows="4" class="form-control" placeholder="Enter your tweet text"></textarea>
+                </div>
+                <div class="mb-3">
+                  <input type="file" id="tw-video-file" accept="video/*" class="form-control" />
+                </div>
+                <div class="d-grid gap-2 mb-3">
+                  <button type="button" class="btn btn-primary custom-btn" onclick="uploadTWVideoChunked()">Post Tweet with Video</button>
+                </div>
+                <div id="tw-spinner" class="text-center">
+                  <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Uploading...</span>
+                  </div>
+                  <p>Uploading video, please wait...</p>
+                </div>
+              </form>
+            </div>
+          </div>
+          <div class="card-footer text-center text-muted">
+            &copy; 2023 Golingo - Twitter Module
+          </div>
+        </div>
+      </div>
+    </div>
+  
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  
+    <script>
+      /*********************************************
+       * Twitter Uploader Configuration            *
+       *********************************************/
+      const TW_CLIENT_ID = 'aTFPSUFOLWhHYUltYzNYczRhSlg6MTpjaQ';
+      let TW_REDIRECT_URI;
+      if (window.location.hostname === 'localhost') {
+        TW_REDIRECT_URI = 'http://localhost:8000/twitter.html';
+      } else {
+        TW_REDIRECT_URI = 'https://social.golingoapp.com/twitter.html';
+      }
+      const TW_AUTH_ENDPOINT = 'https://twitter.com/i/oauth2/authorize';
+      const TW_SCOPES = encodeURIComponent('tweet.read tweet.write media.write users.read offline.access');
+      
+      /*********************************************
+       * Utility Functions                         *
+       *********************************************/
+      function generateRandomString(length) {
+        const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+        let text = '';
+        for (let i = 0; i < length; i++) {
+          text += possible.charAt(Math.floor(Math.random() * possible.length));
+        }
+        return text;
+      }
+      
+      function generateState(length) {
+        const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let text = '';
+        for (let i = 0; i < length; i++) {
+          text += possible.charAt(Math.floor(Math.random() * possible.length));
+        }
+        return text;
+      }
+      
+      async function generateCodeChallenge(codeVerifier) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(codeVerifier);
+        const digest = await crypto.subtle.digest('SHA-256', data);
+        let base64String = btoa(String.fromCharCode(...new Uint8Array(digest)));
+        return base64String.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      }
+      
+      /*********************************************
+       * Initialization of Twitter Uploader        *
+       *********************************************/
+      function initializeTwitterUploader() {
+        // Check for a persisted token (valid for 24 hours)
+        const storedToken = localStorage.getItem('tw_access_token');
+        const tokenExpiry = localStorage.getItem('tw_token_expiry');
+        if (storedToken && tokenExpiry && new Date().getTime() < tokenExpiry) {
+          document.getElementById('tw-auth-status').innerText = "Logged in!";
+          document.getElementById('tw-tweet-form').style.display = "block";
+          document.getElementById('tw-login-button').style.display = "none";
+          document.getElementById('tw-logout-button').style.display = "inline-block";
+          document.getElementById('tw-upload-section').style.display = "block";
+        }
+        // Process redirect from Twitter auth flow if present
+        const params = getQueryParams();
+        if (params.code) {
+          window.history.replaceState({}, document.title, TW_REDIRECT_URI);
+          exchangeTWCodeForToken(params.code);
+        }
+      }
+      
+      /*********************************************
+       * Twitter Login and Token Exchange          *
+       *********************************************/
+      function handleTWLogin() {
+        const state = generateState(16);
+        const codeVerifier = generateRandomString(64);
+        localStorage.setItem('tw_pkce_code_verifier', codeVerifier);
+        generateCodeChallenge(codeVerifier).then(codeChallenge => {
+          const authUrl = `${TW_AUTH_ENDPOINT}?response_type=code` +
+            `&client_id=${TW_CLIENT_ID}` +
+            `&redirect_uri=${encodeURIComponent(TW_REDIRECT_URI)}` +
+            `&scope=${TW_SCOPES}` +
+            `&state=${state}` +
+            `&code_challenge=${codeChallenge}` +
+            `&code_challenge_method=S256`;
+          window.location.href = authUrl;
+        });
+      }
+      
+      function handleTWLogout() {
+        localStorage.removeItem('tw_access_token');
+        localStorage.removeItem('tw_token_expiry');
+        document.getElementById('tw-auth-status').innerText = "Not logged in.";
+        document.getElementById('tw-tweet-form').style.display = "none";
+        document.getElementById('tw-login-button').style.display = "inline-block";
+        document.getElementById('tw-logout-button').style.display = "none";
+        document.getElementById('tw-upload-section').style.display = "none";
+      }
+      
+      function getQueryParams() {
+        const params = {};
+        const queryString = window.location.search.substring(1);
+        const regex = /([^&=]+)=([^&]*)/g;
+        let m;
+        while ((m = regex.exec(queryString))) {
+          params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
+        }
+        return params;
+      }
+      
+      function exchangeTWCodeForToken(code) {
+        const codeVerifier = localStorage.getItem('tw_pkce_code_verifier');
+        const bodyData = new URLSearchParams();
+        bodyData.append('client_id', TW_CLIENT_ID);
+        bodyData.append('grant_type', 'authorization_code');
+        bodyData.append('code', code);
+        bodyData.append('redirect_uri', TW_REDIRECT_URI);
+        bodyData.append('code_verifier', codeVerifier);
+      
+        const lambdaEndpoint = 'https://806d425v42.execute-api.us-east-1.amazonaws.com/prod/twitter_exchange_token';
+        fetch(lambdaEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: bodyData.toString()
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.access_token) {
+            // Persist token for 24 hours
+            const expiryTime = new Date().getTime() + 24 * 60 * 60 * 1000;
+            localStorage.setItem('tw_access_token', data.access_token);
+            localStorage.setItem('tw_token_expiry', expiryTime);
+            document.getElementById('tw-auth-status').innerText = "Logged in!";
+            document.getElementById('tw-tweet-form').style.display = "block";
+            document.getElementById('tw-login-button').style.display = "none";
+            document.getElementById('tw-logout-button').style.display = "inline-block";
+            document.getElementById('tw-upload-section').style.display = "block";
+          } else {
+            document.getElementById('tw-auth-status').innerText = "Authentication failed";
+            console.error("Token exchange error", data);
+          }
+        })
+        .catch(err => {
+          console.error('Error exchanging code for token', err);
+          document.getElementById('tw-auth-status').innerText = "Error during token exchange";
+        });
+      }
+      
+      /*********************************************
+       * Chunked Upload for Video with Spinner     *
+       *********************************************/
+      function uploadTWVideoChunked() {
+        const tweetText = document.getElementById('tw-tweet-text').value.trim();
+        if (tweetText === "") {
+          alert("Please enter some text for your tweet.");
+          return;
+        }
+      
+        const file = document.getElementById('tw-video-file').files[0];
+        if (!file) {
+          alert("Please select a video file.");
+          return;
+        }
+        const access_token = localStorage.getItem('tw_access_token');
+        if (!access_token) {
+          alert("Not authenticated.");
+          return;
+        }
+        // Show spinner before starting upload
+        document.getElementById('tw-spinner').style.display = "block";
+      
+        const lambdaUploadEndpoint = 'https://806d425v42.execute-api.us-east-1.amazonaws.com/prod/twitter_upload_video';
+        
+        // INIT step
+        const initParams = new URLSearchParams();
+        initParams.append('command', 'INIT');
+        initParams.append('total_bytes', file.size);
+        initParams.append('media_type', file.type);
+        initParams.append('media_category', 'tweet_video');
+        initParams.append('access_token', access_token);
+        
+        fetch(lambdaUploadEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: initParams.toString()
+        })
+        .then(response => response.json())
+        .then(initData => {
+          if (!initData.data.id) {
+            throw new Error("INIT call failed: " + JSON.stringify(initData));
+          }
+          const mediaId = initData.data.id;
+          const chunkSize = 5 * 1024 * 1024; // 5 MB chunks
+          const totalChunks = Math.ceil(file.size / chunkSize);
+          let currentChunk = 0;
+          
+          function uploadNextChunk() {
+            if (currentChunk < totalChunks) {
+              const start = currentChunk * chunkSize;
+              const end = Math.min(start + chunkSize, file.size);
+              const blob = file.slice(start, end);
+              const reader = new FileReader();
+              reader.onload = function(event) {
+                const base64Data = event.target.result.split(',')[1];
+                const appendPayload = {
+                  command: 'APPEND',
+                  media_id: mediaId,
+                  segment_index: currentChunk,
+                  access_token: access_token,
+                  media: base64Data
+                };
+                fetch(lambdaUploadEndpoint, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(appendPayload)
+                })
+                .then(response => {
+                  if (response.status === 204) {
+                    currentChunk++;
+                    uploadNextChunk();
+                  } else {
+                    throw new Error('Network response was not ok during APPEND.');
+                  }
+                })
+                .catch(err => {
+                  console.error("Error during APPEND for chunk " + currentChunk + ":", err);
+                });
+              };
+              reader.readAsDataURL(blob);
+            } else {
+              finalizeUpload(mediaId);
+            }
+          }
+          
+          function finalizeUpload(mediaId) {
+            const finalizeParams = new URLSearchParams();
+            finalizeParams.append('command', 'FINALIZE');
+            finalizeParams.append('media_id', mediaId);
+            finalizeParams.append('access_token', access_token);
+            
+            fetch(lambdaUploadEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: finalizeParams.toString()
+            })
+            .then(response => response.json())
+            .then(finalData => {
+              // Wait a few seconds before posting tweet
+              setTimeout(() => {
+                postTweet(mediaId);
+              }, 5000);
+            })
+            .catch(err => {
+              console.error("Error during FINALIZE:", err);
+            });
+          }
+          
+          function postTweet(mediaId) {
+            const tweetText = document.getElementById('tw-tweet-text').value.trim();
+            const tweetPayload = {
+              access_token: access_token,
+              text: tweetText,
+              media_id: mediaId
+            };
+            
+            const postTweetEndpoint = 'https://806d425v42.execute-api.us-east-1.amazonaws.com/prod/twitter_post_tweet';
+            fetch(postTweetEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(tweetPayload)
+            })
+            .then(response => response.json())
+            .then(data => {
+              alert("Upload and Tweet completed!");
+              document.getElementById('tw-spinner').style.display = "none";
+            })
+            .catch(err => {
+              console.error("Error posting tweet:", err);
+              document.getElementById('tw-spinner').style.display = "none";
+            });
+          }
+          
+          // Start uploading chunks
+          uploadNextChunk();
+        })
+        .catch(err => {
+          console.error("Error during INIT:", err);
+          document.getElementById('tw-spinner').style.display = "none";
+        });
+      }
+    </script>
+  </body>
+</html>

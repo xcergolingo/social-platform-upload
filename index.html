@@ -2,282 +2,36 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>YouTube Video Uploader</title>
+    <title>Golingo Social Platform Uploader Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Load Bootstrap CSS from CDN -->
+    <!-- Bootstrap CSS from CDN -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Load the new Google Identity Services library -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <!-- Load the Google API client library (needed for making API calls) -->
-    <script src="https://apis.google.com/js/api.js"></script>
     <style>
       body {
         background: #f8f9fa;
-        margin: 0;
-        height: 100vh;
       }
       .card {
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
       }
-      .custom-btn {
-        min-width: 150px;
+      .module-btn {
+        min-width: 200px;
       }
-      #progress {
-        font-weight: 500;
-        margin-top: 10px;
+      .container {
+        margin-top: 50px;
       }
     </style>
   </head>
-  <body onload="initTokenClient();">
-    <div class="container d-flex justify-content-center align-items-center" style="min-height: 100vh;">
-      <div class="col-md-8">
-        <!-- Main Card -->
-        <div class="card">
-          <div class="card-header bg-primary text-white text-center">
-            <h3 class="mb-0">YouTube Video Uploader</h3>
-            <small>For Golingo</small>
-          </div>
-          <div class="card-body">
-            <!-- Authentication Section -->
-            <div class="mb-4 d-flex justify-content-center" id="auth-section">
-              <button id="signin-button" class="btn btn-success custom-btn me-2" onclick="handleAuthClick()">Sign In with Google</button>
-              <button id="signout-button" class="btn btn-danger custom-btn" style="display:none;" onclick="handleSignOut()">Sign Out</button>
-            </div>
-            <!-- Upload Section -->
-            <div id="upload-section" style="display:none;">
-              <h4 class="mb-3 text-center">Upload a Video</h4>
-              <form id="upload-form">
-                <div class="mb-3">
-                  <label for="video-title" class="form-label">Video Title:</label>
-                  <input id="video-title" type="text" class="form-control" placeholder="Enter video title">
-                </div>
-                <div class="mb-3">
-                  <label for="video-description" class="form-label">Video Description:</label>
-                  <textarea id="video-description" rows="4" class="form-control" placeholder="Enter video description"></textarea>
-                </div>
-                <div class="mb-3">
-                  <label for="video-file" class="form-label">Select Video File:</label>
-                  <input id="video-file" type="file" accept="video/*" class="form-control">
-                </div>
-                <div class="d-grid gap-2">
-                  <button type="button" id="upload-button" class="btn btn-primary custom-btn" onclick="uploadVideo()">Upload Video</button>
-                </div>
-                <div id="progress" class="mt-3 text-center"></div>
-              </form>
-            </div>
-          </div>
-          <div class="card-footer text-center text-muted">
-            &copy; 2023 Golingo
-          </div>
+  <body>
+    <div class="container d-flex justify-content-center">
+      <div class="card p-4">
+        <h2 class="text-center">Uploader Dashboard</h2>
+        <div class="d-grid gap-3 mt-4">
+          <a href="youtube.html" class="btn btn-primary module-btn">YouTube Uploader</a>
+          <a href="twitter.html" class="btn btn-info module-btn">Twitter Uploader</a>
         </div>
       </div>
     </div>
-  
     <!-- Bootstrap Bundle with Popper -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  
-    <script>
-      // ================= Configuration ===================
-      // Replace these with your own values from the Google Cloud Console.
-      const CLIENT_ID = '364162722608-thvnubqhtg68f1uhvf7gm5cqia8fhnbs.apps.googleusercontent.com';
-      const API_KEY = 'AIzaSyAkJ6ba71wTSWWBDM5t7PLfR4R4r_D2ODA';
-      // This scope is needed for uploading videos to YouTube.
-      const SCOPES = 'https://www.googleapis.com/auth/youtube.upload';
-      // Discovery document URL for the YouTube Data API.
-      const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest';
-      
-      // Global variables
-      let tokenClient;     // Will be initialized to request an access token.
-      let accessToken = null;
-      
-      // ====================================================
-      // Initialize the GIS token client (runs on page load)
-      function initTokenClient() {
-        tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: CLIENT_ID,
-          scope: SCOPES,
-          callback: '' 
-        });
-      }
-      
-      // Called when the user clicks the “Sign In” button.
-      function handleAuthClick() {
-        tokenClient.callback = (resp) => {
-          if (resp.error) {
-            console.error("Error obtaining access token:", resp);
-            return;
-          }
-          accessToken = resp.access_token;
-          // After a successful sign-in, show the upload section.
-          document.getElementById("upload-section").style.display = "block";
-          document.getElementById("signin-button").style.display = "none";
-          document.getElementById("signout-button").style.display = "inline-block";
-          
-          // (Optional) Initialize the gapi client for API calls.
-          gapiInit();
-        };
-        // This will trigger a popup for the user to select a Google account.
-        tokenClient.requestAccessToken();
-      }
-      
-      // Sign out button simply clears the token and UI.
-      function handleSignOut() {
-        accessToken = null;
-        // Note: Revoking tokens programmatically isn’t directly provided in GIS.
-        document.getElementById("upload-section").style.display = "none";
-        document.getElementById("signin-button").style.display = "inline-block";
-        document.getElementById("signout-button").style.display = "none";
-      }
-      
-      // Initialize the legacy gapi client library (for calling YouTube APIs)
-      function gapiInit() {
-        gapi.client.setApiKey(API_KEY);
-        gapi.client.load(DISCOVERY_DOC).then(() => {
-          console.log("gapi client loaded for YouTube API");
-        }, (error) => {
-          console.error("Error loading gapi client:", error);
-        });
-      }
-      
-      // ====================== Video Upload Code ======================
-      
-      // Triggered when user clicks the Upload Video button.
-      function uploadVideo() {
-        const fileInput = document.getElementById("video-file");
-        const file = fileInput.files[0];
-        if (!file) {
-          alert("Please select a video file.");
-          return;
-        }
-      
-        const title = document.getElementById("video-title").value || "Untitled Video";
-        const description = document.getElementById("video-description").value || "";
-      
-        // Create metadata for the video.
-        const metadata = {
-          snippet: {
-            title: title,
-            description: description,
-            categoryId: "27"  // See https://developers.google.com/youtube/v3/docs/videoCategories/list for options.
-          },
-          status: {
-            privacyStatus: "public" // Options: "private", "public", "unlisted"
-          }
-        };
-      
-        // Create a new MediaUploader instance to handle the resumable upload.
-        const uploader = new MediaUploader({
-          file: file,
-          token: accessToken,
-          metadata: metadata,
-          params: { part: "snippet,status" },
-          onError: function(data) {
-            alert("Upload error: " + data);
-          },
-          onProgress: function(data) {
-            const progress = Math.round((data.loaded / data.total) * 100);
-            document.getElementById("progress").innerText = "Upload progress: " + progress + "%";
-          },
-          onComplete: function(data) {
-            const uploadResponse = JSON.parse(data);
-            alert("Upload complete! Video ID: " + uploadResponse.id);
-            document.getElementById("progress").innerText = "";
-          }
-        });
-        uploader.upload();
-      }
-      
-      // ==================== MediaUploader Helper Class ====================
-      // A minimal resumable upload helper.
-      function MediaUploader(options) {
-        var noop = function() {};
-        this.file = options.file;
-        this.contentType = this.file.type || 'application/octet-stream';
-        this.token = options.token;
-        this.metadata = options.metadata || {};
-        this.params = options.params || {};
-        this.onError = options.onError || noop;
-        this.onProgress = options.onProgress || noop;
-        this.onComplete = options.onComplete || noop;
-        this.offset = options.offset || 0;
-        this.chunkSize = options.chunkSize || 0; // Zero means no chunking.
-        // This is the base URL for initiating a resumable upload.
-        this.url = options.url || "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable";
-      }
-      
-      // Initiate the resumable upload.
-      MediaUploader.prototype.upload = function() {
-        var self = this;
-        var xhr = new XMLHttpRequest();
-        // Append any extra parameters to the URL.
-        var url = this.url;
-        for (var k in this.params) {
-          url += "&" + k + "=" + encodeURIComponent(this.params[k]);
-        }
-        xhr.open("POST", url, true);
-        xhr.setRequestHeader("Content-Type", "application/json; charset=utf-8");
-        xhr.setRequestHeader("X-Upload-Content-Length", this.file.size);
-        xhr.setRequestHeader("X-Upload-Content-Type", this.contentType);
-        xhr.setRequestHeader("Authorization", "Bearer " + this.token);
-      
-        xhr.onload = function(e) {
-          if (xhr.status < 400) {
-            var location = xhr.getResponseHeader("Location");
-            self.uploadUrl = location;
-            self.sendFile();
-          } else {
-            self.onError(xhr.responseText);
-          }
-        };
-      
-        xhr.onerror = function(e) {
-          self.onError(xhr.responseText);
-        };
-        xhr.send(JSON.stringify(this.metadata));
-      };
-      
-      // Upload the file data.
-      MediaUploader.prototype.sendFile = function() {
-        var self = this;
-        var xhr = new XMLHttpRequest();
-        var file = this.file;
-        var uploadSize = file.size;
-        var content = file.slice(this.offset, uploadSize);
-      
-        xhr.open("PUT", this.uploadUrl, true);
-        xhr.setRequestHeader("Content-Type", this.contentType);
-        xhr.setRequestHeader("Content-Range", "bytes " + this.offset + "-" + (uploadSize - 1) + "/" + uploadSize);
-        xhr.setRequestHeader("Authorization", "Bearer " + this.token);
-      
-        xhr.upload.addEventListener("progress", function(e) {
-          if (e.lengthComputable) {
-            self.onProgress({ loaded: e.loaded, total: e.total });
-          }
-        });
-      
-        xhr.onload = function(e) {
-          if (xhr.status === 200 || xhr.status === 201) {
-            self.onComplete(xhr.responseText);
-          } else if (xhr.status === 308) {
-            // 308 means resumable upload incomplete.
-            var range = xhr.getResponseHeader("Range");
-            if (range) {
-              self.offset = parseInt(range.match(/\d+$/)[0]) + 1;
-            } else {
-              self.offset += content.size;
-            }
-            self.sendFile();
-          } else {
-            self.onError(xhr.responseText);
-          }
-        };
-      
-        xhr.onerror = function(e) {
-          self.onError(xhr.responseText);
-        };
-      
-        xhr.send(content);
-      };
-    </script>
   </body>
 </html>
